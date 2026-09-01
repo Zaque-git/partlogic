@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Perfil — PartLogic</title>
+  <meta name="description" content="Atualize seus dados de contato e gerencie o acesso à sua conta PartLogic." />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="page-loading" id="loading"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin" aria-hidden="true"><path d="M12 3v3m0 12v3m9-9h-3M6 12H3m15.4-6.4-2.1 2.1M8.7 15.7l-2.1 2.1m0-11.4 2.1 2.1m8.6 8.6 2.1 2.1"/></svg> Carregando sua conta...</div>
+  <div id="app-root"></div>
+
+  <template id="page-content">
+    <div class="container-md" style="max-width:48rem;margin-inline:auto">
+      <header style="margin-bottom:1.5rem">
+        <h1 style="font-size:1.5rem;font-weight:600;letter-spacing:-.01em">Perfil</h1>
+        <p class="text-sm text-muted" style="margin-top:.4rem" id="perfil-sub"></p>
+      </header>
+
+      <form id="form-perfil" class="card card-pad-lg" novalidate>
+        <div id="perfil-erro" class="alert alert-danger hidden" style="margin-bottom:1rem"></div>
+        <div id="perfil-sucesso" class="alert alert-success hidden" style="margin-bottom:1rem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> Dados atualizados com sucesso.</div>
+
+        <div class="form-grid">
+          <div class="field col-lg-12">
+            <label for="p-nome">Nome completo</label>
+            <input id="p-nome" maxlength="100" />
+          </div>
+          <div class="field col-sm-6">
+            <label for="p-email">E-mail</label>
+            <input id="p-email" type="email" maxlength="255" />
+          </div>
+          <div class="field col-sm-6">
+            <label for="p-telefone">Telefone</label>
+            <input id="p-telefone" maxlength="20" />
+          </div>
+        </div>
+
+        <div class="flex gap-2" style="flex-wrap:wrap;padding-top:.5rem">
+          <button type="submit" class="btn btn-primary">Salvar alterações</button>
+          <button type="button" class="btn btn-ghost" id="btn-sair-perfil"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg> Sair da conta</button>
+        </div>
+      </form>
+    </div>
+  </template>
+
+  <script src="js/storage.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/catalogo.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async () => {
+      if (await protegerRota()) document.getElementById("loading").remove();
+    })();
+
+    document.addEventListener("shell-ready", () => {
+      const u = App.usuario;
+      document.getElementById("perfil-sub").textContent =
+        `Conta criada em ${new Date(u.criadoEm).toLocaleDateString("pt-BR")} · ${App.veiculos.length} veículo(s) · ${App.historico.length} verificação(ões)`;
+
+      document.getElementById("p-nome").value = u.nome;
+      document.getElementById("p-email").value = u.email;
+      document.getElementById("p-telefone").value = u.telefone || "";
+
+      document.getElementById("btn-sair-perfil").addEventListener("click", () => {
+        App.sair();
+        location.replace("login.html");
+      });
+
+      document.getElementById("form-perfil").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const erroEl = document.getElementById("perfil-erro");
+        const sucessoEl = document.getElementById("perfil-sucesso");
+        erroEl.classList.add("hidden");
+        sucessoEl.classList.add("hidden");
+
+        const nome = document.getElementById("p-nome").value;
+        const email = document.getElementById("p-email").value;
+        const telefone = document.getElementById("p-telefone").value;
+
+        if (nome.trim().length < 3) { erroEl.textContent = "Informe seu nome completo."; erroEl.classList.remove("hidden"); return; }
+        if (!email.includes("@")) { erroEl.textContent = "Informe um e-mail válido."; erroEl.classList.remove("hidden"); return; }
+
+        try {
+          await App.atualizarPerfil({ nome: nome.trim(), email: email.trim(), telefone: telefone.trim() });
+          sucessoEl.classList.remove("hidden");
+        } catch (err) {
+          erroEl.textContent = err instanceof Error ? err.message : "Não foi possível atualizar o perfil.";
+          erroEl.classList.remove("hidden");
+        }
+      });
+    });
+  </script>
+</body>
+</html>

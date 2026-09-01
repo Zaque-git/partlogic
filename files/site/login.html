@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Entrar — PartLogic</title>
+  <meta name="description" content="Acesse o PartLogic para verificar a compatibilidade de peças com seus veículos." />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="auth-shell grade-tecnica">
+    <div class="auth-card anim-rise">
+      <div class="logo">Part<span class="accent">Logic</span></div>
+      <h1 class="auth-title">Entrar na sua conta</h1>
+      <p class="auth-sub">Verifique a compatibilidade de peças com os seus veículos.</p>
+
+      <div id="erro" class="alert alert-danger anim-rise hidden" style="margin-top:1.25rem">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg><span id="erro-texto"></span>
+      </div>
+
+      <form id="form-login" novalidate style="margin-top:1.5rem">
+        <div class="field">
+          <label for="email">E-mail</label>
+          <input id="email" type="email" autocomplete="email" maxlength="255" placeholder="voce@email.com" />
+        </div>
+        <div class="field">
+          <label for="senha">Senha</label>
+          <div class="input-wrap">
+            <input id="senha" type="password" autocomplete="current-password" maxlength="64" class="has-toggle" placeholder="Mínimo de 6 caracteres" />
+            <button type="button" class="input-toggle" id="toggle-senha" aria-label="Mostrar senha"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>
+          </div>
+        </div>
+        <div class="flex" style="align-items:center;margin-bottom:1rem">
+          <label class="checkbox-row text-xs text-muted">
+            <input type="checkbox" class="checkbox" id="lembrar" checked /> Lembrar-me
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="btn-entrar">Entrar</button>
+      </form>
+
+      <p class="auth-footer">Não tem conta? <a href="cadastro.html">Criar uma conta</a></p>
+    </div>
+  </div>
+
+  <script src="js/storage.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async () => {
+      await App.init();
+      if (App.usuario) location.replace("dashboard.html");
+    })();
+
+    const toggleBtn = document.getElementById("toggle-senha");
+    const senhaInput = document.getElementById("senha");
+    let mostrar = false;
+    toggleBtn.addEventListener("click", () => {
+      mostrar = !mostrar;
+      senhaInput.type = mostrar ? "text" : "password";
+      toggleBtn.innerHTML = mostrar ? icon("eyeoff") : icon("eye");
+      toggleBtn.setAttribute("aria-label", mostrar ? "Ocultar senha" : "Mostrar senha");
+    });
+
+    function mostrarErro(msg) {
+      document.getElementById("erro-texto").textContent = msg;
+      document.getElementById("erro").classList.remove("hidden");
+    }
+    function esconderErro() {
+      document.getElementById("erro").classList.add("hidden");
+    }
+
+    document.getElementById("form-login").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      esconderErro();
+      const email = document.getElementById("email").value;
+      const senha = senhaInput.value;
+      if (!email.includes("@")) return mostrarErro("Informe um e-mail válido.");
+      if (senha.length < 6) return mostrarErro("A senha deve ter no mínimo 6 caracteres.");
+
+      const btn = document.getElementById("btn-entrar");
+      btn.disabled = true;
+      btn.innerHTML = `${icon("loader", "spin")} Entrando...`;
+      try {
+        await App.entrar(email, senha);
+        location.href = "dashboard.html";
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = "Entrar";
+        mostrarErro(err instanceof Error ? err.message : "Não foi possível entrar.");
+      }
+    });
+  </script>
+</body>
+</html>

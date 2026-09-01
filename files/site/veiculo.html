@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Detalhes do veículo — PartLogic</title>
+  <meta name="description" content="Ficha técnica do veículo e histórico de verificações." />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="page-loading" id="loading"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin" aria-hidden="true"><path d="M12 3v3m0 12v3m9-9h-3M6 12H3m15.4-6.4-2.1 2.1M8.7 15.7l-2.1 2.1m0-11.4 2.1 2.1m8.6 8.6 2.1 2.1"/></svg> Carregando sua conta...</div>
+  <div id="app-root"></div>
+
+  <template id="page-content">
+    <nav class="breadcrumb" style="margin-bottom:1rem">
+      <a href="veiculos.html">Meus veículos</a><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg><span class="current" id="bc-veiculo">Veículo</span>
+    </nav>
+
+    <div id="conteudo"></div>
+  </template>
+
+  <script src="js/storage.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/catalogo.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async () => {
+      if (await protegerRota()) document.getElementById("loading").remove();
+    })();
+
+    document.addEventListener("shell-ready", () => {
+      const id = new URLSearchParams(location.search).get("id");
+      const v = App.veiculos.find((x) => x.id === id);
+      const el = document.getElementById("conteudo");
+
+      if (!v) {
+        el.innerHTML = emptyState({
+          icone: "car", titulo: "Veículo não encontrado",
+          descricao: "Este veículo pode ter sido removido da sua garagem.",
+          acaoHtml: `<a class="btn btn-primary" href="veiculos.html">Voltar aos veículos</a>`,
+        });
+        return;
+      }
+      document.getElementById("bc-veiculo").textContent = `${v.marca} ${v.modelo}`;
+      document.title = `${v.marca} ${v.modelo} — PartLogic`;
+
+      const historicoVeiculo = App.historico.filter((h) => h.veiculoId === v.id);
+      const manutVeiculo = App.manutencoes.filter((m) => m.veiculoId === v.id);
+
+      el.innerHTML = `
+        <div class="detail-header anim-rise">
+          <div class="flex gap-4" style="align-items:center">
+            <span class="brand-icon">${icon(iconePorTipo[v.tipo])}</span>
+            <div>
+              <div class="flex gap-2" style="align-items:center">
+                <h1 style="font-size:1.3rem;font-weight:600">${escapeHtml(v.marca)} ${escapeHtml(v.modelo)}</h1>
+                ${v.principal ? `<span class="principal-badge">${icon("star")}Principal</span>` : ""}
+              </div>
+              <p class="text-sm text-muted" style="margin-top:.25rem">${v.ano} · ${escapeHtml(v.tipo)} · Cadastrado em ${formatarData(v.criadoEm)}</p>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <a class="btn btn-primary" href="verificar.html?veiculo=${encodeURIComponent(v.id)}">${icon("scan")} Consultar peça</a>
+          </div>
+        </div>
+
+        <dl class="detail-dl anim-rise">
+          <div class="item"><dt>Versão</dt><dd>${escapeHtml(v.versao)}</dd></div>
+          <div class="item"><dt>Motorização</dt><dd>${escapeHtml(v.motor)}</dd></div>
+          <div class="item"><dt>Combustível</dt><dd>${escapeHtml(v.combustivel)}</dd></div>
+          <div class="item"><dt>Placa</dt><dd class="mono">${escapeHtml(v.placa || "Não informada")}</dd></div>
+        </dl>
+
+        <div class="two-col" style="margin-top:1.5rem">
+          <div class="panel">
+            <div class="panel-head"><h2>${icon("clipboard")} Verificações deste veículo</h2></div>
+            <div id="hist-veiculo"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>${icon("wrench")} Manutenções</h2></div>
+            <div id="manut-veiculo"></div>
+          </div>
+        </div>
+      `;
+
+      const histEl = document.getElementById("hist-veiculo");
+      histEl.innerHTML = historicoVeiculo.length === 0
+        ? emptyState({ icone: "clipboard", titulo: "Sem verificações", descricao: "Nenhuma peça foi verificada para este veículo ainda." })
+        : historicoVeiculo.slice(0, 8).map((h) => `
+          <div class="simple-row">
+            <div class="min-w-0"><p class="title truncate">${escapeHtml(h.pecaNome)}</p><p class="sub">${formatarData(h.data)}</p></div>
+            ${compatBadge(h.resultado)}
+          </div>`).join("");
+
+      const manutEl = document.getElementById("manut-veiculo");
+      manutEl.innerHTML = manutVeiculo.length === 0
+        ? emptyState({ icone: "wrench", titulo: "Sem manutenções", descricao: "Nenhuma manutenção programada para este veículo." })
+        : manutVeiculo.map((m) => `
+          <div class="simple-row">
+            <div class="min-w-0"><p class="title truncate">${escapeHtml(m.tipo)}</p><p class="sub">${new Date(`${m.dataPrevista}T12:00:00`).toLocaleDateString("pt-BR")}</p></div>
+            <span class="badge-status status-${m.status}">${m.status}</span>
+          </div>`).join("");
+    });
+  </script>
+</body>
+</html>

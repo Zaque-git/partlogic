@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Configurações — PartLogic</title>
+  <meta name="description" content="Ajuste notificações, preferências de exibição e privacidade da sua conta." />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="page-loading" id="loading"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin" aria-hidden="true"><path d="M12 3v3m0 12v3m9-9h-3M6 12H3m15.4-6.4-2.1 2.1M8.7 15.7l-2.1 2.1m0-11.4 2.1 2.1m8.6 8.6 2.1 2.1"/></svg> Carregando sua conta...</div>
+  <div id="app-root"></div>
+
+  <template id="page-content">
+    <div id="conteudo-config" class="container-md" style="max-width:48rem;margin-inline:auto"></div>
+  </template>
+
+  <script src="js/storage.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/catalogo.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async () => {
+      if (await protegerRota()) document.getElementById("loading").remove();
+    })();
+
+    const opcoesNotif = [
+      { id: "alertas", titulo: "Alertas de compatibilidade", descricao: "Receber aviso quando uma peça exigir confirmação de motor ou versão.", inicial: true },
+      { id: "novidades", titulo: "Novidades do catálogo", descricao: "Avisar quando novas peças forem adicionadas para os seus veículos.", inicial: false },
+      { id: "historico", titulo: "Registrar verificações", descricao: "Guardar automaticamente cada consulta no histórico.", inicial: true },
+    ];
+    let estadoNotif = Object.fromEntries(opcoesNotif.map((o) => [o.id, o.inicial]));
+
+    const faq = [
+      { pergunta: "Como o PartLogic decide se a peça é compatível?", resposta: "Comparamos marca, modelo, faixa de anos e motor do seu veículo com as aplicações registradas da peça. Quando algum dado não bate por completo, o resultado vira “verificar” com o motivo e a orientação." },
+      { pergunta: "O valor exibido na peça é o preço de venda?", resposta: "Não. O valor base do investimento é apenas uma referência de mercado para planejamento; o preço final depende do fornecedor." },
+      { pergunta: "Como marcar um veículo como principal?", resposta: "Em Meus veículos, use a opção “Definir como principal” no card do veículo. Ele passa a vir pré-selecionado nas consultas." },
+      { pergunta: "Preciso de ajuda com uma aplicação específica. Como falar com vocês?", resposta: "Escreva para suporte@partlogic.com.br informando veículo, motor e o código da peça. Respondemos em até 1 dia útil." },
+    ];
+
+    function raiz() {
+      const el = document.getElementById("conteudo-config");
+      el.innerHTML = `
+        <header style="margin-bottom:1.5rem">
+          <h1 style="font-size:1.5rem;font-weight:600;letter-spacing:-.01em">Configurações</h1>
+          <p class="text-sm text-muted" style="margin-top:.4rem">Preferências da conta ${escapeHtml(App.usuario.email)}.</p>
+        </header>
+
+        <div class="card divide" style="margin-bottom:1.5rem">
+          ${opcoesNotif.map((o) => `
+            <div class="settings-row">
+              <div class="txt"><p>${escapeHtml(o.titulo)}</p><p>${escapeHtml(o.descricao)}</p></div>
+              <input type="checkbox" class="switch" id="switch-${o.id}" ${estadoNotif[o.id] ? "checked" : ""} aria-label="${escapeHtml(o.titulo)}" />
+            </div>`).join("")}
+        </div>
+
+        <section class="card card-pad-lg" style="margin-bottom:1.5rem">
+          <h2 style="font-size:1rem;font-weight:600;margin-bottom:1rem">Preferências</h2>
+          <div class="flex" style="justify-content:space-between;align-items:flex-start;gap:1.5rem">
+            <div>
+              <label for="switch-tema" style="font-size:.875rem;font-weight:500">Tema</label>
+              <p class="text-xs text-muted" id="tema-desc" style="margin-top:.25rem"></p>
+            </div>
+            <input type="checkbox" class="switch" id="switch-tema" aria-label="Tema" />
+          </div>
+
+          <div class="field" style="margin-top:1.25rem">
+            <label for="select-idioma">Idioma</label>
+            <div class="select" id="select-idioma" style="max-width:20rem">
+              <button type="button" class="select-trigger"><span class="select-value"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+              <div class="select-menu"></div>
+            </div>
+            <p class="text-xs text-muted" style="margin-top:.5rem">A navegação principal e as preferências são exibidas no idioma escolhido. Dados técnicos do catálogo permanecem em português.</p>
+          </div>
+        </section>
+
+        <section class="card card-pad-lg">
+          <h2 style="font-size:1rem;font-weight:600">Suporte · Ajuda</h2>
+          <p class="text-xs text-muted" style="margin-top:.25rem">Perguntas frequentes sobre compatibilidade, valores e conta.</p>
+          <div id="acordeon-faq" style="margin-top:.75rem"></div>
+          <p class="text-xs text-muted" style="margin-top:1rem">Ainda com dúvida? Fale com a gente: <a href="mailto:suporte@partlogic.com.br" style="color:var(--primary)">suporte@partlogic.com.br</a></p>
+        </section>
+      `;
+
+      opcoesNotif.forEach((o) => {
+        document.getElementById(`switch-${o.id}`).addEventListener("change", (e) => { estadoNotif[o.id] = e.target.checked; });
+      });
+
+      const switchTema = document.getElementById("switch-tema");
+      function atualizarTemaDesc() {
+        document.getElementById("tema-desc").textContent = `${App.t(App.tema === "escuro" ? "temaEscuro" : "temaClaro")} — alterna toda a interface.`;
+        switchTema.checked = App.tema === "escuro";
+      }
+      atualizarTemaDesc();
+      switchTema.addEventListener("change", (e) => {
+        App.definirTema(e.target.checked ? "escuro" : "claro");
+        atualizarTemaDesc();
+      });
+
+      const selIdioma = document.getElementById("select-idioma");
+      selIdioma.querySelector(".select-menu").innerHTML = idiomas.map((i) => `<div class="select-option" data-value="${i.valor}">${escapeHtml(i.label)}</div>`).join("");
+      selIdioma.querySelectorAll(".select-option").forEach((opt) => opt.addEventListener("click", () => {
+        App.definirIdioma(opt.dataset.value);
+        location.reload(); // recarrega para atualizar a navegação com os textos traduzidos
+      }));
+      const idiomaAtual = idiomas.find((i) => i.valor === App.idioma);
+      setSelectValue(selIdioma, App.idioma, idiomaAtual ? idiomaAtual.label : App.idioma);
+      initCustomSelects();
+
+      const acEl = document.getElementById("acordeon-faq");
+      acEl.innerHTML = faq.map((item, i) => `
+        <div class="accordion-item" id="faq-${i}">
+          <button type="button" class="accordion-trigger">${escapeHtml(item.pergunta)}${icon("chevronright")}</button>
+          <div class="accordion-content">${escapeHtml(item.resposta)}</div>
+        </div>`).join("");
+      acEl.querySelectorAll(".accordion-item").forEach((item) => {
+        item.querySelector(".accordion-trigger").addEventListener("click", () => {
+          const abrir = !item.classList.contains("open");
+          acEl.querySelectorAll(".accordion-item").forEach((i) => i.classList.remove("open"));
+          if (abrir) item.classList.add("open");
+        });
+      });
+    }
+
+    document.addEventListener("shell-ready", raiz);
+  </script>
+</body>
+</html>

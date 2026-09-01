@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Meus veículos — PartLogic</title>
+  <meta name="description" content="Cadastre, edite e remova os veículos usados nas verificações de peças." />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="page-loading" id="loading"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin" aria-hidden="true"><path d="M12 3v3m0 12v3m9-9h-3M6 12H3m15.4-6.4-2.1 2.1M8.7 15.7l-2.1 2.1m0-11.4 2.1 2.1m8.6 8.6 2.1 2.1"/></svg> Carregando sua conta...</div>
+  <div id="app-root"></div>
+
+  <template id="page-content">
+    <div class="page-head">
+      <div>
+        <h1>Meus veículos</h1>
+        <p id="contagem"></p>
+      </div>
+      <button class="btn btn-primary" id="btn-novo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Adicionar veículo</button>
+    </div>
+
+    <div id="lista-veiculos"></div>
+
+    <!-- Modal de veículo -->
+    <div class="modal-overlay" id="modal-veiculo">
+      <div class="modal">
+        <h2 class="modal-title" id="modal-titulo">Adicionar veículo</h2>
+        <p class="modal-desc">Os dados técnicos aumentam a precisão da verificação de compatibilidade.</p>
+
+        <form id="form-veiculo" novalidate style="margin-top:1.25rem">
+          <div id="form-erro" class="alert alert-danger hidden" style="margin-bottom:1rem"></div>
+
+          <div class="form-grid">
+            <div class="field col-lg-12">
+              <label class="field-required">Tipo de veículo</label>
+              <div class="select" id="select-tipo">
+                <button type="button" class="select-trigger"><span class="select-value">Carro</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+                <div class="select-menu"></div>
+              </div>
+            </div>
+            <div class="field col-sm-6">
+              <label class="field-required" for="v-marca">Marca</label>
+              <input id="v-marca" maxlength="40" placeholder="Ex.: Toyota, BYD, Renault..." />
+            </div>
+            <div class="field col-sm-6">
+              <label class="field-required" for="v-modelo">Modelo</label>
+              <input id="v-modelo" maxlength="40" placeholder="Ex.: Corolla, Dolphin..." />
+            </div>
+            <div class="field col-sm-6">
+              <label for="v-ano">Ano</label>
+              <input id="v-ano" inputmode="numeric" maxlength="4" />
+            </div>
+            <div class="field col-sm-6">
+              <label for="v-versao">Versão</label>
+              <input id="v-versao" maxlength="40" placeholder="XEi, Touring..." />
+            </div>
+            <div class="field col-sm-6">
+              <label for="v-motor">Motorização</label>
+              <input id="v-motor" maxlength="30" placeholder="2.0 16V" />
+            </div>
+            <div class="field col-sm-6">
+              <label>Combustível</label>
+              <div class="select" id="select-combustivel">
+                <button type="button" class="select-trigger"><span class="select-value">Flex</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+                <div class="select-menu"></div>
+              </div>
+            </div>
+            <div class="field col-lg-12">
+              <label for="v-placa">Placa (opcional)</label>
+              <input id="v-placa" maxlength="8" placeholder="RQP1D23" class="mono" style="letter-spacing:.1em" />
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" id="btn-cancelar">Cancelar</button>
+            <button type="submit" class="btn btn-primary" id="btn-salvar">Adicionar veículo</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Confirmação de exclusão -->
+    <div class="modal-overlay" id="modal-excluir">
+      <div class="modal" style="max-width:26rem">
+        <h2 class="modal-title">Excluir veículo?</h2>
+        <p class="modal-desc" id="excluir-desc"></p>
+        <div class="modal-footer">
+          <button class="btn btn-outline" id="btn-cancelar-excluir">Cancelar</button>
+          <button class="btn btn-primary" id="btn-confirmar-excluir">Excluir</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <script src="js/storage.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/catalogo.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async () => {
+      if (await protegerRota()) document.getElementById("loading").remove();
+    })();
+
+    let editandoId = null;
+    let excluirId = null;
+    const vazio = { tipo: "Carro", marca: "", modelo: "", ano: String(new Date().getFullYear()), versao: "", motor: "", combustivel: "Flex", placa: "" };
+    let form = { ...vazio };
+
+    function renderLista() {
+      const veiculos = App.veiculos;
+      document.getElementById("contagem").textContent = `${veiculos.length} veículo(s) na sua garagem.`;
+      const el = document.getElementById("lista-veiculos");
+      if (veiculos.length === 0) {
+        el.innerHTML = emptyState({
+          icone: "car", titulo: "Sua garagem está vazia",
+          descricao: "Cadastre um veículo para começar a verificar a compatibilidade de peças.",
+          acaoHtml: `<button class="btn btn-primary" id="btn-vazio-novo">Adicionar veículo</button>`,
+        });
+        document.getElementById("btn-vazio-novo").addEventListener("click", abrirNovo);
+        return;
+      }
+      el.innerHTML = `<div class="vehicles-grid">${veiculos.map(cardVeiculo).join("")}</div>`;
+      el.querySelectorAll("[data-editar]").forEach((b) => b.addEventListener("click", () => abrirEdicao(b.dataset.editar)));
+      el.querySelectorAll("[data-excluir]").forEach((b) => b.addEventListener("click", () => abrirExcluir(b.dataset.excluir)));
+      el.querySelectorAll("[data-principal]").forEach((b) => b.addEventListener("click", async () => {
+        const id = b.dataset.principal;
+        const v = App.veiculos.find((x) => x.id === id);
+        try {
+          await App.definirPrincipal(id);
+          toast.success(`${v.marca} ${v.modelo} agora é o veículo principal.`);
+          renderLista();
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : "Não foi possível definir o veículo principal.");
+        }
+      }));
+    }
+
+    function cardVeiculo(v) {
+      return `
+        <article class="vehicle-card anim-rise">
+          <div class="vehicle-media">
+            ${icon(iconePorTipo[v.tipo], "")}
+            <span class="vehicle-tag">${escapeHtml(v.tipo)}</span>
+            ${v.placa ? `<span class="vehicle-plate mono">${escapeHtml(v.placa)}</span>` : ""}
+          </div>
+          <div class="vehicle-body">
+            <div class="row-top">
+              <h3>${escapeHtml(v.marca)} ${escapeHtml(v.modelo)}</h3>
+              ${v.principal ? `<span class="principal-badge">${icon("star")}Principal</span>` : ""}
+            </div>
+            <p class="sub">${v.ano} · ${escapeHtml(v.versao)} · ${escapeHtml(v.motor)} · ${escapeHtml(v.combustivel)}</p>
+            <dl class="vehicle-dl">
+              <div><dt>Motorização</dt><dd>${escapeHtml(v.motor)}</dd></div>
+              <div><dt>Cadastrado em</dt><dd>${formatarData(v.criadoEm)}</dd></div>
+            </dl>
+            <div class="vehicle-actions">
+              <div class="btns">
+                <a class="btn btn-secondary btn-sm" href="veiculo.html?id=${encodeURIComponent(v.id)}">Ver veículo</a>
+                <a class="btn btn-primary btn-sm" href="verificar.html?veiculo=${encodeURIComponent(v.id)}">${icon("scan")} Consultar</a>
+              </div>
+              <div class="icons">
+                ${!v.principal ? `<button class="btn btn-ghost btn-icon" title="Definir como principal" data-principal="${v.id}">${icon("star")}</button>` : ""}
+                <button class="btn btn-ghost btn-icon" title="Editar" data-editar="${v.id}">${icon("pencil")}</button>
+                <button class="btn btn-ghost btn-icon btn-destructive-text" title="Remover" data-excluir="${v.id}">${icon("trash")}</button>
+              </div>
+            </div>
+          </div>
+        </article>`;
+    }
+
+    // ---- Selects customizados do formulário ----
+    function buildSelect(id, options, onChange) {
+      const sel = document.getElementById(id);
+      const menu = sel.querySelector(".select-menu");
+      menu.innerHTML = options.map((o) => `<div class="select-option" data-value="${escapeHtml(o)}">${escapeHtml(o)}</div>`).join("");
+      sel.querySelectorAll(".select-option").forEach((opt) => {
+        opt.addEventListener("click", () => {
+          setSelectValue(sel, opt.dataset.value, opt.textContent);
+          onChange(opt.dataset.value);
+        });
+      });
+    }
+
+    function refreshSelects() {
+      buildSelect("select-tipo", tiposVeiculo, (v) => { form.tipo = v; refreshSelects(); });
+      setSelectValue(document.getElementById("select-tipo"), form.tipo, form.tipo);
+
+      buildSelect("select-combustivel", combustiveis, (v) => { form.combustivel = v; });
+      setSelectValue(document.getElementById("select-combustivel"), form.combustivel, form.combustivel);
+
+      initCustomSelects();
+    }
+
+    function preencherCamposLivres() {
+      document.getElementById("v-marca").value = form.marca;
+      document.getElementById("v-modelo").value = form.modelo;
+      document.getElementById("v-ano").value = form.ano;
+      document.getElementById("v-versao").value = form.versao;
+      document.getElementById("v-motor").value = form.motor;
+      document.getElementById("v-placa").value = form.placa;
+    }
+
+    function abrirNovo() {
+      editandoId = null;
+      form = { ...vazio };
+      document.getElementById("modal-titulo").textContent = "Adicionar veículo";
+      document.getElementById("btn-salvar").textContent = "Adicionar veículo";
+      document.getElementById("form-erro").classList.add("hidden");
+      preencherCamposLivres();
+      refreshSelects();
+      openModal("modal-veiculo");
+    }
+
+    function abrirEdicao(id) {
+      const v = App.veiculos.find((x) => x.id === id);
+      if (!v) return;
+      editandoId = id;
+      form = { tipo: v.tipo, marca: v.marca, modelo: v.modelo, ano: String(v.ano), versao: v.versao, motor: v.motor, combustivel: v.combustivel, placa: v.placa || "" };
+      document.getElementById("modal-titulo").textContent = "Editar veículo";
+      document.getElementById("btn-salvar").textContent = "Salvar alterações";
+      document.getElementById("form-erro").classList.add("hidden");
+      preencherCamposLivres();
+      refreshSelects();
+      openModal("modal-veiculo");
+    }
+
+    function abrirExcluir(id) {
+      const v = App.veiculos.find((x) => x.id === id);
+      excluirId = id;
+      document.getElementById("excluir-desc").textContent = `${v.marca} ${v.modelo} ${v.ano} será removido da sua garagem. Esta ação não pode ser desfeita.`;
+      openModal("modal-excluir");
+    }
+
+    document.addEventListener("shell-ready", () => {
+      renderLista();
+      document.getElementById("btn-novo").addEventListener("click", abrirNovo);
+      document.getElementById("btn-cancelar").addEventListener("click", () => closeModal("modal-veiculo"));
+      document.getElementById("btn-cancelar-excluir").addEventListener("click", () => closeModal("modal-excluir"));
+      document.getElementById("btn-confirmar-excluir").addEventListener("click", async () => {
+        if (excluirId) {
+          try {
+            await App.excluirVeiculo(excluirId);
+            toast.success("Veículo removido da sua garagem.");
+            renderLista();
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Não foi possível remover o veículo.");
+          }
+        }
+        closeModal("modal-excluir");
+      });
+
+      document.getElementById("v-ano").addEventListener("input", (e) => { form.ano = e.target.value.replace(/\D/g, ""); e.target.value = form.ano; });
+      document.getElementById("v-versao").addEventListener("input", (e) => { form.versao = e.target.value; });
+      document.getElementById("v-motor").addEventListener("input", (e) => { form.motor = e.target.value; });
+      document.getElementById("v-placa").addEventListener("input", (e) => { form.placa = e.target.value.toUpperCase(); e.target.value = form.placa; });
+      document.getElementById("v-marca").addEventListener("input", (e) => { form.marca = e.target.value; });
+      document.getElementById("v-modelo").addEventListener("input", (e) => { form.modelo = e.target.value; });
+
+      document.getElementById("form-veiculo").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const erroEl = document.getElementById("form-erro");
+        erroEl.classList.add("hidden");
+        const ano = Number(form.ano);
+        function erro(msg) { erroEl.textContent = msg; erroEl.classList.remove("hidden"); }
+        if (!form.marca.trim()) return erro("Informe a marca.");
+        if (!form.modelo.trim()) return erro("Informe o modelo.");
+        if (!ano || ano < 1980 || ano > new Date().getFullYear() + 1) return erro("Informe um ano válido.");
+        if (form.motor.trim().length < 2) return erro("Informe a motorização.");
+
+        const btnSalvar = document.getElementById("btn-salvar");
+        btnSalvar.disabled = true;
+        try {
+          await App.salvarVeiculo({
+            ...(editandoId ? { id: editandoId } : {}),
+            tipo: form.tipo, marca: form.marca.trim(), modelo: form.modelo.trim(), ano,
+            versao: form.versao.trim() || "—", motor: form.motor.trim(),
+            combustivel: form.combustivel, placa: form.placa.trim().toUpperCase(),
+          });
+          closeModal("modal-veiculo");
+          toast.success(editandoId ? "Veículo atualizado com sucesso." : "Veículo adicionado com sucesso.");
+          renderLista();
+        } catch (err) {
+          erro(err instanceof Error ? err.message : "Não foi possível salvar o veículo.");
+        } finally {
+          btnSalvar.disabled = false;
+        }
+      });
+    });
+  </script>
+</body>
+</html>

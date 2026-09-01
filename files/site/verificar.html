@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Consultar peças — PartLogic</title>
+  <meta name="description" content="Escolha o veículo, pesquise a peça por nome, código ou OEM e veja o resultado de compatibilidade." />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="page-loading" id="loading"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin" aria-hidden="true"><path d="M12 3v3m0 12v3m9-9h-3M6 12H3m15.4-6.4-2.1 2.1M8.7 15.7l-2.1 2.1m0-11.4 2.1 2.1m8.6 8.6 2.1 2.1"/></svg> Carregando sua conta...</div>
+  <div id="app-root"></div>
+
+  <template id="page-content">
+    <div id="conteudo-verificar"></div>
+  </template>
+
+  <script src="js/storage.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/catalogo.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async () => {
+      if (await protegerRota()) document.getElementById("loading").remove();
+    })();
+
+    const passos = ["Escolher veículo", "Escolher peça", "Verificar", "Resultado"];
+    let estado = {
+      veiculoId: "",
+      termo: "",
+      categoria: "TODAS",
+      buscando: false,
+      enviado: false,
+      erro: "",
+      resultadoPrincipal: null, // { peca, avaliacao, origem } — resultado verificado via backend/IA
+    };
+
+    // Converte a resposta da API (/api/verificar-compatibilidade) para o formato usado na UI.
+    function avaliacaoDaApi(resposta, peca, veiculo) {
+      if (resposta.erro) {
+        return {
+          resultado: "VERIFICAR",
+          grau: 0,
+          motivo: "Não foi possível concluir a verificação automática agora.",
+          orientacao: "Tente novamente em instantes ou confirme o código OEM diretamente com o fornecedor.",
+        };
+      }
+      const compativel = !!resposta.compativel;
+      return {
+        resultado: compativel ? "COMPATIVEL" : "INCOMPATIVEL",
+        grau: resposta.certeza_percentual ?? (compativel ? 90 : 10),
+        motivo: resposta.justificativa || (compativel
+          ? `Aplicação compatível com ${veiculo.marca} ${veiculo.modelo} ${veiculo.ano}.`
+          : `Peça não indicada para ${veiculo.marca} ${veiculo.modelo} ${veiculo.ano}.`),
+        orientacao: resposta.observacoes_tecnicas || peca.observacoes || "Confirme o código OEM ao receber a peça.",
+      };
+    }
+
+    function veiculoAtual() {
+      const principal = App.veiculos.find((v) => v.principal) ?? App.veiculos[0];
+      return App.veiculos.find((v) => v.id === estado.veiculoId) ?? principal;
+    }
+
+    function etapaAtual() {
+      const v = veiculoAtual();
+      if (estado.enviado) return 3;
+      if (estado.termo.trim() || estado.categoria !== "TODAS") return 2;
+      if (v) return 1;
+      return 0;
+    }
+
+    function raiz() {
+      if (App.veiculos.length === 0) {
+        document.getElementById("conteudo-verificar").innerHTML = `
+          <div class="container-md">
+            ${emptyState({ icone: "car", titulo: "Cadastre um veículo primeiro", descricao: "A consulta de compatibilidade precisa de pelo menos um veículo cadastrado.", acaoHtml: `<a class="btn btn-primary" href="veiculos.html">Cadastrar veículo</a>` })}
+          </div>`;
+        return;
+      }
+
+      const v = veiculoAtual();
+      if (!estado.veiculoId && v) estado.veiculoId = v.id;
+      const ativa = etapaAtual();
+
+      const stepsHtml = passos.map((p, i) => `
+        <li class="wizard-step ${i <= ativa ? "active" : ""}">
+          <span class="num">${i + 1}</span><span>${p}</span>
+        </li>`).join("");
+
+      document.getElementById("conteudo-verificar").innerHTML = `
+        <div class="container-md" style="max-width:72rem;margin-inline:auto">
+          <nav class="breadcrumb" style="margin-bottom:1rem">
+            <a href="dashboard.html">Dashboard</a><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg><span class="current">Consultar peças</span>
+          </nav>
+          <header style="margin-bottom:1.5rem">
+            <h1 style="font-size:1.5rem;font-weight:600;letter-spacing:-.01em">Consultar compatibilidade</h1>
+            <p class="text-sm text-muted" style="margin-top:.4rem">Em 4 passos você descobre se a peça serve no seu veículo.</p>
+          </header>
+
+          <ol class="wizard-steps">${stepsHtml}</ol>
+
+          <form id="form-verificar" class="card anim-rise" style="padding:1.5rem;margin-bottom:1.5rem" novalidate>
+            <div class="form-grid">
+              ${estado.erro ? `<p role="alert" class="alert alert-danger col-lg-12">${escapeHtml(estado.erro)}</p>` : ""}
+
+              <div class="field col-lg-8">
+                <label class="field-required">Veículo</label>
+                <div class="select" id="select-veiculo">
+                  <button type="button" class="select-trigger"><span class="select-value"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+                  <div class="select-menu"></div>
+                </div>
+                <p class="text-xs text-muted" id="veiculo-sub" style="margin-top:.35rem"></p>
+              </div>
+
+              <div class="field col-lg-4">
+                <label>Categoria da peça</label>
+                <div class="select" id="select-categoria">
+                  <button type="button" class="select-trigger"><span class="select-value"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+                  <div class="select-menu"></div>
+                </div>
+              </div>
+
+              <div class="field col-lg-12" style="position:relative">
+                <label for="termo">Peça (nome, código OEM)</label>
+                <div class="input-wrap has-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="input-icon" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+                  <input id="termo" maxlength="80" autocomplete="off" placeholder="Ex.: pastilha de freio, filtro de óleo, XYZ123" value="${escapeHtml(estado.termo)}" />
+                </div>
+                <div id="sugestoes-termo" class="sugestoes-dropdown" hidden></div>
+              </div>
+
+              <div class="flex gap-2 col-lg-12" style="flex-wrap:wrap;align-items:center">
+                <button type="submit" class="btn btn-primary" id="btn-verificar" ${estado.buscando ? "disabled" : ""}>
+                  ${estado.buscando ? icon("loader", "spin") : icon("search")} ${estado.buscando ? "Consultando..." : "Verificar compatibilidade"}
+                </button>
+                ${estado.enviado ? `<button type="button" class="btn btn-ghost" id="btn-nova-consulta">${icon("rotate")} Nova consulta</button>` : ""}
+              </div>
+            </div>
+          </form>
+
+          <div id="resultado-area"></div>
+        </div>
+      `;
+
+      // popular selects
+      const selVeiculo = document.getElementById("select-veiculo");
+      selVeiculo.querySelector(".select-menu").innerHTML = App.veiculos.map((x) =>
+        `<div class="select-option" data-value="${x.id}">${escapeHtml(x.tipo)} · ${escapeHtml(x.marca)} ${escapeHtml(x.modelo)} ${x.ano} · ${escapeHtml(x.motor)}</div>`
+      ).join("");
+      selVeiculo.querySelectorAll(".select-option").forEach((opt) => opt.addEventListener("click", () => {
+        estado.veiculoId = opt.dataset.value;
+        raiz();
+      }));
+      const vAtual = veiculoAtual();
+      setSelectValue(selVeiculo, vAtual ? vAtual.id : "", vAtual ? `${vAtual.tipo} · ${vAtual.marca} ${vAtual.modelo} ${vAtual.ano} · ${vAtual.motor}` : "Selecione o veículo");
+      if (vAtual) {
+        document.getElementById("veiculo-sub").textContent =
+          `${vAtual.versao} · ${vAtual.combustivel}${vAtual.principal ? " · veículo principal" : ""}`;
+      }
+
+      const selCategoria = document.getElementById("select-categoria");
+      selCategoria.querySelector(".select-menu").innerHTML =
+        `<div class="select-option" data-value="TODAS">Todas as categorias</div>` +
+        categorias.map((c) => `<div class="select-option" data-value="${c}">${c}</div>`).join("");
+      selCategoria.querySelectorAll(".select-option").forEach((opt) => opt.addEventListener("click", () => {
+        estado.categoria = opt.dataset.value;
+        setSelectValue(selCategoria, opt.dataset.value, opt.textContent);
+      }));
+      setSelectValue(selCategoria, estado.categoria, estado.categoria === "TODAS" ? "Todas as categorias" : estado.categoria);
+
+      initCustomSelects();
+
+      const inputTermo = document.getElementById("termo");
+      const boxSugestoes = document.getElementById("sugestoes-termo");
+
+      function renderSugestoes() {
+        const t = estado.termo.trim();
+        if (t.length < 2) { boxSugestoes.hidden = true; boxSugestoes.innerHTML = ""; return; }
+        const v = veiculoAtual();
+        const tipo = v ? v.tipo : "TODOS";
+        const resultados = buscarPecas(t, estado.categoria, tipo).slice(0, 6);
+        if (resultados.length === 0) { boxSugestoes.hidden = true; boxSugestoes.innerHTML = ""; return; }
+        boxSugestoes.innerHTML = resultados.map((p) => `
+          <button type="button" class="sugestao-item" data-nome="${escapeHtml(p.nome)}">
+            <span class="sugestao-nome">${escapeHtml(p.nome)}</span>
+            <span class="sugestao-sub">${escapeHtml(p.fabricante || "")}${p.codigo ? " · " + escapeHtml(p.codigo) : ""}</span>
+          </button>
+        `).join("");
+        boxSugestoes.hidden = false;
+        boxSugestoes.querySelectorAll(".sugestao-item").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            estado.termo = btn.dataset.nome;
+            inputTermo.value = btn.dataset.nome;
+            boxSugestoes.hidden = true;
+            boxSugestoes.innerHTML = "";
+          });
+        });
+      }
+
+      inputTermo.addEventListener("input", (e) => { estado.termo = e.target.value; renderSugestoes(); });
+      inputTermo.addEventListener("focus", renderSugestoes);
+      document.addEventListener("click", (e) => {
+        if (!boxSugestoes.contains(e.target) && e.target !== inputTermo) { boxSugestoes.hidden = true; }
+      });
+
+      if (estado.enviado) {
+        document.getElementById("btn-nova-consulta").addEventListener("click", () => {
+          estado = { ...estado, termo: "", categoria: "TODAS", enviado: false, erro: "" };
+          raiz();
+        });
+      }
+
+      document.getElementById("form-verificar").addEventListener("submit", pesquisar);
+
+      renderResultado();
+    }
+
+    async function pesquisar(e) {
+      e.preventDefault();
+      estado.erro = "";
+      const v = veiculoAtual();
+      if (!v) { estado.erro = "Selecione um veículo para continuar."; raiz(); return; }
+      const termo = estado.termo.trim();
+      if (!termo) {
+        estado.erro = "Informe o nome ou o código da peça.";
+        raiz();
+        return;
+      }
+
+      // Se a peça digitada bater com algo do catálogo de referência, usamos os dados
+      // técnicos extras dele (ficha, OEM, valor de referência). Isso é só um bônus —
+      // a consulta funciona normalmente mesmo que a peça não exista nesse catálogo.
+      const doCatalogo = buscarPecas(termo, estado.categoria, "TODOS")[0];
+      const peca = doCatalogo ?? {
+        nome: termo,
+        codigo: termo,
+        categoria: estado.categoria !== "TODAS" ? estado.categoria : null,
+        fabricante: null, oem: null, valorBase: null, specs: [], descricao: "", observacoes: null,
+      };
+
+      estado.buscando = true;
+      estado.enviado = false;
+      estado.resultadoPrincipal = null;
+      raiz();
+
+      let avaliacao;
+      let origem = "estimativa_local";
+      try {
+        const resposta = await compatApi.verificar({
+          marca: v.marca, modelo: v.modelo, ano: v.ano, motor: v.motor,
+          nomePeca: peca.nome, codigoPeca: peca.codigo,
+        });
+        avaliacao = avaliacaoDaApi(resposta, peca, v);
+        origem = resposta.origem || "ia_gemini";
+      } catch (err) {
+        // Backend indisponível: cai para uma estimativa local só quando a peça é do catálogo de referência.
+        avaliacao = doCatalogo
+          ? avaliar(doCatalogo, v)
+          : { resultado: "VERIFICAR", grau: 0, motivo: "Não foi possível falar com o servidor de verificação.", orientacao: "Tente novamente em instantes." };
+        toast.warning("Não foi possível falar com o servidor de verificação.");
+      }
+
+      estado.buscando = false;
+      estado.enviado = true;
+      estado.resultadoPrincipal = { peca, avaliacao, origem };
+      raiz();
+
+      try {
+        await App.registrarVerificacao({
+          veiculoId: v.id, veiculoLabel: `${v.marca} ${v.modelo} ${v.ano}`, veiculoTipo: v.tipo, veiculoMarca: v.marca,
+          pecaNome: peca.nome, pecaCodigo: peca.codigo, categoria: peca.categoria,
+          resultado: avaliacao.resultado, motivo: avaliacao.motivo, grau: avaliacao.grau, origem,
+        });
+      } catch (err) {
+        toast.warning("A verificação foi concluída, mas não foi possível registrá-la no histórico.");
+      }
+
+      if (avaliacao.resultado === "COMPATIVEL") toast.success("Consulta concluída: peça compatível.");
+      else if (avaliacao.resultado === "INCOMPATIVEL") toast.error("Consulta concluída: peça não compatível.");
+      else toast.warning("Consulta concluída: compatibilidade não confirmada.");
+    }
+
+    function renderResultado() {
+      const area = document.getElementById("resultado-area");
+
+      if (estado.buscando) {
+        area.innerHTML = `<div class="grid gap-3">${"<div class=\"skeleton-block pulse\"></div>".repeat(2)}</div>`;
+        return;
+      }
+
+      if (!estado.enviado || !estado.resultadoPrincipal) {
+        area.innerHTML = emptyState({ icone: "search", titulo: "Faça sua primeira consulta", descricao: "Selecione o veículo, informe o nome ou código da peça e clique em verificar compatibilidade." });
+        return;
+      }
+
+      const { peca, avaliacao, origem } = estado.resultadoPrincipal;
+      area.innerHTML = resultadoDestaqueHtml(peca, veiculoAtual(), avaliacao, origem);
+    }
+
+    function origemLabel(origem) {
+      const mapa = {
+        ia_gemini: "Verificado por IA (Gemini)",
+        cache_banco: "Verificado por IA · resultado em cache",
+        indisponivel: "Verificação indisponível no momento",
+        estimativa_local: "Estimativa local (backend indisponível)",
+      };
+      return mapa[origem] || null;
+    }
+
+    function resultadoDestaqueHtml(peca, veiculo, avaliacao, origem) {
+      const dados = [
+        { label: "Tipo", valor: veiculo.tipo }, { label: "Marca", valor: veiculo.marca },
+        { label: "Modelo", valor: veiculo.modelo }, { label: "Ano", valor: String(veiculo.ano) },
+        { label: "Versão", valor: veiculo.versao }, { label: "Motor", valor: veiculo.motor },
+      ];
+      const rotuloOrigem = origemLabel(origem);
+      const temFichaTecnica = !!(peca.fabricante || peca.oem || peca.valorBase || (peca.specs && peca.specs.length));
+      return `
+        <section class="result-highlight anim-rise ${resultadoCardClass(avaliacao.resultado)}">
+          <div class="result-top">
+            <div class="min-w-0">
+              ${compatBadge(avaliacao.resultado, { tamanho: "lg" })}
+              ${rotuloOrigem ? `<p class="text-xs text-muted" style="margin-top:.35rem">${escapeHtml(rotuloOrigem)}</p>` : ""}
+              <h2>${escapeHtml(peca.nome)}</h2>
+              <p class="sub">${peca.fabricante ? escapeHtml(peca.fabricante) + " · " : ""}${escapeHtml(peca.categoria || "Categoria não informada")}${peca.codigo ? ` · <span class="mono">${escapeHtml(peca.codigo)}</span>` : ""}</p>
+            </div>
+            <div class="result-gauge">
+              <div class="row"><span>Grau de compatibilidade</span><span class="val">${avaliacao.grau}%</span></div>
+              <div class="gauge-track"><div class="gauge-fill" style="width:${avaliacao.grau}%"></div></div>
+            </div>
+          </div>
+          <div class="result-grid">
+            <div>
+              <h3>Veículo consultado</h3>
+              <dl class="result-specs">
+                ${dados.map((d) => `<div class="item"><dt>${d.label}</dt><dd>${escapeHtml(d.valor)}</dd></div>`).join("")}
+              </dl>
+            </div>
+            ${temFichaTecnica ? `
+            <div>
+              <h3>Informações técnicas</h3>
+              <dl class="result-info-dl">
+                ${peca.oem ? `<div class="row"><dt class="text-muted">Código OEM</dt><dd class="mono">${escapeHtml(peca.oem)}</dd></div>` : ""}
+                ${peca.valorBase ? `<div class="row"><dt class="text-muted">Valor base do investimento</dt><dd class="mono" style="font-weight:600">${formatarValor(peca.valorBase)}</dd></div>` : ""}
+                ${(peca.specs || []).slice(0, 3).map((s) => `<div class="row"><dt class="text-muted">${escapeHtml(s.label)}</dt><dd>${escapeHtml(s.valor)}</dd></div>`).join("")}
+              </dl>
+            </div>` : ""}
+            <div class="result-note">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8h.01"/></svg>
+              <div>
+                <p style="font-size:.875rem;font-weight:500">${escapeHtml(avaliacao.motivo)}</p>
+                <p class="tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.6.6 1 1.3 1 2.5h6c0-1.2.4-1.9 1-2.5A6 6 0 0 0 12 3Z"/></svg>${escapeHtml(avaliacao.orientacao)}</p>
+                ${peca.observacoes ? `<p class="text-xs text-muted" style="margin-top:.5rem">Observações: ${escapeHtml(peca.observacoes)}</p>` : ""}
+              </div>
+            </div>
+          </div>
+        </section>`;
+    }
+
+    document.addEventListener("shell-ready", () => {
+      const params = new URLSearchParams(location.search);
+      const veiculoParam = params.get("veiculo");
+      if (veiculoParam) estado.veiculoId = veiculoParam;
+      raiz();
+    });
+  </script>
+</body>
+</html>

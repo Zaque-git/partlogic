@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manutenção preventiva — PartLogic</title>
+  <meta name="description" content="Acompanhe manutenções preventivas dos seus veículos: próximas, agendadas, atrasadas e realizadas." />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="page-loading" id="loading"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin" aria-hidden="true"><path d="M12 3v3m0 12v3m9-9h-3M6 12H3m15.4-6.4-2.1 2.1M8.7 15.7l-2.1 2.1m0-11.4 2.1 2.1m8.6 8.6 2.1 2.1"/></svg> Carregando sua conta...</div>
+  <div id="app-root"></div>
+
+  <template id="page-content">
+    <div id="conteudo-manutencao"></div>
+  </template>
+
+  <script src="js/storage.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/catalogo.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async () => {
+      if (await protegerRota()) document.getElementById("loading").remove();
+    })();
+
+    const statusOpcoes = ["Próxima", "Agendada", "Realizada", "Atrasada"];
+    const estiloStatus = {
+      "Próxima": { icone: "clock" }, "Agendada": { icone: "calendarclock" },
+      "Realizada": { icone: "checkcircle" }, "Atrasada": { icone: "alerttriangle" },
+    };
+
+    let form = { veiculoId: "", tipo: "", dataPrevista: "", km: "", status: "Agendada", erro: "" };
+    let filtro = "TODAS";
+
+    function statusBadge(status) {
+      return `<span class="badge-status status-${status}">${icon(estiloStatus[status].icone)}${status}</span>`;
+    }
+
+    function raiz() {
+      const container = document.getElementById("conteudo-manutencao");
+      if (App.veiculos.length === 0) {
+        container.innerHTML = `<div class="container-md">${emptyState({
+          icone: "wrench", titulo: "Cadastre um veículo primeiro",
+          descricao: "A manutenção preventiva é sempre associada a um veículo cadastrado.",
+          acaoHtml: `<a class="btn btn-primary" href="veiculos.html">Cadastrar veículo</a>`,
+        })}</div>`;
+        return;
+      }
+
+      if (!form.veiculoId) {
+        const principal = App.veiculos.find((v) => v.principal) ?? App.veiculos[0];
+        form.veiculoId = principal.id;
+      }
+
+      const manutencoes = App.manutencoes;
+      const resumo = {
+        proximas: manutencoes.filter((m) => m.status === "Próxima" || m.status === "Agendada").length,
+        atrasadas: manutencoes.filter((m) => m.status === "Atrasada").length,
+        realizadas: manutencoes.filter((m) => m.status === "Realizada").length,
+      };
+      const ordenada = [...manutencoes].sort((a, b) => a.dataPrevista.localeCompare(b.dataPrevista));
+      const lista = filtro === "TODAS" ? ordenada : ordenada.filter((m) => m.status === filtro);
+
+      container.innerHTML = `
+        <div class="container-md" style="max-width:72rem;margin-inline:auto">
+          <nav class="breadcrumb" style="margin-bottom:1rem">
+            <a href="dashboard.html">Dashboard</a><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg><span class="current">Manutenção preventiva</span>
+          </nav>
+          <header style="margin-bottom:1.5rem">
+            <h1 style="font-size:1.5rem;font-weight:600;letter-spacing:-.01em">Manutenção preventiva</h1>
+            <p class="text-sm text-muted" style="margin-top:.4rem">Acompanhe o que está próximo, o que está atrasado e o histórico do que já foi feito.</p>
+          </header>
+
+          <section class="stats-grid">
+            <div class="stat-card"><div class="top"><span>Próximas / agendadas</span>${icon("calendarclock")}</div><p class="value">${resumo.proximas}</p></div>
+            <div class="stat-card"><div class="top"><span>Atrasadas</span>${icon("alerttriangle")}</div><p class="value">${resumo.atrasadas}</p></div>
+            <div class="stat-card"><div class="top"><span>Realizadas</span>${icon("checkcircle")}</div><p class="value">${resumo.realizadas}</p></div>
+          </section>
+
+          <form id="form-manut" class="card" style="padding:1.5rem;margin-bottom:1.5rem" novalidate>
+            <div class="form-grid">
+              <h2 style="font-size:1rem;font-weight:600" class="col-lg-12">Nova manutenção preventiva</h2>
+              ${form.erro ? `<p role="alert" class="alert alert-danger col-lg-12">${escapeHtml(form.erro)}</p>` : ""}
+
+              <div class="field col-lg-4">
+                <label class="field-required">Veículo</label>
+                <div class="select" id="select-veiculo-manut">
+                  <button type="button" class="select-trigger"><span class="select-value"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+                  <div class="select-menu"></div>
+                </div>
+              </div>
+              <div class="field col-lg-4">
+                <label class="field-required" for="tipo-manut">Tipo de manutenção</label>
+                <input id="tipo-manut" maxlength="80" placeholder="Ex.: troca de óleo e filtro" value="${escapeHtml(form.tipo)}" />
+              </div>
+              <div class="field col-lg-2">
+                <label class="field-required" for="data-manut">Data prevista</label>
+                <input id="data-manut" type="date" value="${escapeHtml(form.dataPrevista)}" />
+              </div>
+              <div class="field col-lg-2">
+                <label for="km-manut">Km previsto</label>
+                <input id="km-manut" inputmode="numeric" maxlength="7" placeholder="Opcional" value="${escapeHtml(form.km)}" />
+              </div>
+              <div class="field col-lg-4">
+                <label>Status</label>
+                <div class="select" id="select-status-manut">
+                  <button type="button" class="select-trigger"><span class="select-value"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+                  <div class="select-menu"></div>
+                </div>
+              </div>
+              <div class="col-lg-12">
+                <button type="submit" class="btn btn-primary" id="btn-salvar-manut">Cadastrar manutenção</button>
+              </div>
+            </div>
+          </form>
+
+          <section>
+            <div class="flex" style="flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.75rem;margin-bottom:1rem">
+              <h2 style="font-size:1rem;font-weight:600">Histórico de manutenções</h2>
+              <div style="width:100%;max-width:14rem">
+                <div class="select" id="select-filtro-manut">
+                  <button type="button" class="select-trigger"><span class="select-value"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+                  <div class="select-menu"></div>
+                </div>
+              </div>
+            </div>
+            <div id="lista-manut"></div>
+          </section>
+        </div>
+      `;
+
+      // veículo select
+      const selVeiculo = document.getElementById("select-veiculo-manut");
+      selVeiculo.querySelector(".select-menu").innerHTML = App.veiculos.map((v) =>
+        `<div class="select-option" data-value="${v.id}">${escapeHtml(v.tipo)} · ${escapeHtml(v.marca)} ${escapeHtml(v.modelo)} ${v.ano}</div>`
+      ).join("");
+      selVeiculo.querySelectorAll(".select-option").forEach((opt) => opt.addEventListener("click", () => {
+        form.veiculoId = opt.dataset.value;
+        setSelectValue(selVeiculo, opt.dataset.value, opt.textContent);
+      }));
+      const vSel = App.veiculos.find((v) => v.id === form.veiculoId);
+      setSelectValue(selVeiculo, form.veiculoId, vSel ? `${vSel.tipo} · ${vSel.marca} ${vSel.modelo} ${vSel.ano}` : "Selecione o veículo");
+
+      const selStatus = document.getElementById("select-status-manut");
+      selStatus.querySelector(".select-menu").innerHTML = statusOpcoes.map((s) => `<div class="select-option" data-value="${s}">${s}</div>`).join("");
+      selStatus.querySelectorAll(".select-option").forEach((opt) => opt.addEventListener("click", () => {
+        form.status = opt.dataset.value;
+        setSelectValue(selStatus, opt.dataset.value, opt.textContent);
+      }));
+      setSelectValue(selStatus, form.status, form.status);
+
+      const selFiltro = document.getElementById("select-filtro-manut");
+      selFiltro.querySelector(".select-menu").innerHTML =
+        `<div class="select-option" data-value="TODAS">Todos os status</div>` +
+        statusOpcoes.map((s) => `<div class="select-option" data-value="${s}">${s}</div>`).join("");
+      selFiltro.querySelectorAll(".select-option").forEach((opt) => opt.addEventListener("click", () => {
+        filtro = opt.dataset.value;
+        raiz();
+      }));
+      setSelectValue(selFiltro, filtro, filtro === "TODAS" ? "Todos os status" : filtro);
+
+      initCustomSelects();
+
+      document.getElementById("tipo-manut").addEventListener("input", (e) => { form.tipo = e.target.value; });
+      document.getElementById("data-manut").addEventListener("input", (e) => { form.dataPrevista = e.target.value; });
+      document.getElementById("km-manut").addEventListener("input", (e) => { form.km = e.target.value.replace(/\D/g, ""); e.target.value = form.km; });
+
+      document.getElementById("form-manut").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        form.erro = "";
+        const veiculo = App.veiculos.find((v) => v.id === form.veiculoId);
+        if (!veiculo) { form.erro = "Selecione o veículo da manutenção."; raiz(); return; }
+        if (form.tipo.trim().length < 3) { form.erro = "Informe o tipo de manutenção."; raiz(); return; }
+        if (!form.dataPrevista) { form.erro = "Informe a data prevista."; raiz(); return; }
+
+        try {
+          await App.salvarManutencao({
+            veiculoId: veiculo.id, veiculoLabel: `${veiculo.marca} ${veiculo.modelo} ${veiculo.ano}`,
+            tipo: form.tipo.trim(), dataPrevista: form.dataPrevista,
+            ...(form.km.trim() ? { kmPrevisto: Number(form.km) } : {}),
+            status: form.status,
+          });
+          toast.success("Manutenção preventiva cadastrada.");
+          form = { ...form, tipo: "", dataPrevista: "", km: "" };
+          raiz();
+        } catch (err) {
+          form.erro = err instanceof Error ? err.message : "Não foi possível cadastrar a manutenção.";
+          raiz();
+        }
+      });
+
+      const listaEl = document.getElementById("lista-manut");
+      if (lista.length === 0) {
+        listaEl.innerHTML = emptyState({ icone: "wrench", titulo: "Nenhuma manutenção nesse filtro", descricao: "Cadastre uma manutenção preventiva ou selecione outro status." });
+      } else {
+        listaEl.innerHTML = `<ul class="maint-list">${lista.map((m) => `
+          <li>
+            <div class="min-w-0">
+              <p class="title truncate">${escapeHtml(m.tipo)}</p>
+              <p class="sub">${escapeHtml(m.veiculoLabel)} · ${new Date(`${m.dataPrevista}T12:00:00`).toLocaleDateString("pt-BR")}${m.kmPrevisto ? ` · ${m.kmPrevisto.toLocaleString("pt-BR")} km` : ""}</p>
+            </div>
+            <div class="flex gap-2" style="flex-wrap:wrap;align-items:center">
+              ${statusBadge(m.status)}
+              ${m.status !== "Realizada" ? `<button class="btn btn-secondary btn-sm" data-realizar="${m.id}">Marcar realizada</button>` : ""}
+              <button class="btn btn-ghost btn-icon" aria-label="Excluir manutenção" data-excluir-manut="${m.id}">${icon("trash")}</button>
+            </div>
+          </li>`).join("")}</ul>`;
+
+        listaEl.querySelectorAll("[data-realizar]").forEach((b) => b.addEventListener("click", async () => {
+          try {
+            await App.atualizarStatusManutencao(b.dataset.realizar, "Realizada");
+            toast.success("Manutenção marcada como realizada.");
+            raiz();
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Não foi possível atualizar a manutenção.");
+          }
+        }));
+        listaEl.querySelectorAll("[data-excluir-manut]").forEach((b) => b.addEventListener("click", async () => {
+          try {
+            await App.excluirManutencao(b.dataset.excluirManut);
+            toast.success("Manutenção removida.");
+            raiz();
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Não foi possível remover a manutenção.");
+          }
+        }));
+      }
+    }
+
+    document.addEventListener("shell-ready", raiz);
+  </script>
+</body>
+</html>

@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard — PartLogic</title>
+  <meta name="description" content="Resumo dos seus veículos, verificações recentes e atalhos do PartLogic." />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="page-loading" id="loading"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin" aria-hidden="true"><path d="M12 3v3m0 12v3m9-9h-3M6 12H3m15.4-6.4-2.1 2.1M8.7 15.7l-2.1 2.1m0-11.4 2.1 2.1m8.6 8.6 2.1 2.1"/></svg> Carregando sua conta...</div>
+  <div id="app-root"></div>
+
+  <template id="page-content">
+    <div class="container-md" style="max-width:72rem;margin-inline:auto">
+      <section class="dash-hero anim-rise">
+        <img src="assets/hero-oficina.jpg" alt="Oficina automotiva moderna com veículos em manutenção" width="1600" height="900" />
+        <div class="dash-hero-overlay"></div>
+        <div class="dash-hero-content">
+          <div>
+            <p class="eyebrow">Bem-vindo de volta</p>
+            <h1 id="saudacao"></h1>
+          </div>
+          <div class="dash-hero-actions">
+            <a class="btn btn-primary" href="verificar.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/><path d="m16 16-1.5-1.5"/></svg> Verificar peça</a>
+            <a class="btn btn-secondary" href="veiculos.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Cadastrar veículo</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="stats-grid" id="stats"></section>
+
+      <section class="two-col" style="margin-bottom:1.5rem">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Meus veículos</h2>
+            <a class="btn btn-ghost btn-sm" href="veiculos.html">Ver todos</a>
+          </div>
+          <div id="lista-veiculos"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Verificações recentes</h2>
+            <a class="btn btn-ghost btn-sm" href="historico.html">Ver todas</a>
+          </div>
+          <div id="lista-recentes"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="M14.7 6.3a4 4 0 1 0-5.4 5.4L2 19l3 3 7.3-7.3a4 4 0 0 0 5.4-5.4l-2.8 2.8-2.5-.5-.5-2.5Z"/></svg> Manutenção preventiva</h2>
+            <p class="text-xs text-muted" id="resumo-manutencao" style="margin-top:.25rem"></p>
+          </div>
+          <a class="btn btn-ghost btn-sm" href="manutencao.html">Ver tudo</a>
+        </div>
+        <div id="lista-manutencao"></div>
+      </section>
+    </div>
+  </template>
+
+  <script src="js/storage.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/catalogo.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async () => {
+      if (await protegerRota()) document.getElementById("loading").remove();
+    })();
+
+    document.addEventListener("shell-ready", () => {
+      const { usuario, veiculos, historico, manutencoes } = App;
+      document.getElementById("saudacao").textContent =
+        `Olá, ${usuario.nome.split(" ")[0]}. Vamos verificar uma peça?`;
+
+      const compativeis = historico.filter((h) => h.resultado === "COMPATIVEL").length;
+      const metricas = [
+        { label: "Veículos cadastrados", valor: veiculos.length, icone: "car" },
+        { label: "Verificações realizadas", valor: historico.length, icone: "clipboard" },
+        { label: "Peças compatíveis", valor: compativeis, icone: "trending" },
+      ];
+      document.getElementById("stats").innerHTML = metricas.map((m) => `
+        <div class="stat-card anim-rise">
+          <div class="top"><span>${escapeHtml(m.label)}</span>${icon(m.icone)}</div>
+          <p class="value">${m.valor}</p>
+        </div>`).join("");
+
+      const listaVeiculos = document.getElementById("lista-veiculos");
+      if (veiculos.length === 0) {
+        listaVeiculos.innerHTML = emptyState({
+          icone: "car", titulo: "Nenhum veículo cadastrado",
+          descricao: "Cadastre um veículo para verificar a compatibilidade das peças.",
+          acaoHtml: `<a class="btn btn-primary" href="veiculos.html">Cadastrar veículo</a>`,
+        });
+      } else {
+        listaVeiculos.innerHTML = veiculos.slice(0, 4).map((v) => `
+          <a class="simple-row" href="veiculo.html?id=${encodeURIComponent(v.id)}">
+            <span class="flex gap-3" style="align-items:center;font-size:.875rem;font-weight:500">
+              ${icon("car", "")}${escapeHtml(v.marca)} ${escapeHtml(v.modelo)} ${v.ano}
+            </span>
+            <span class="mono text-xs text-muted">${escapeHtml(v.placa || v.motor)}</span>
+          </a>`).join("");
+      }
+
+      const listaRecentes = document.getElementById("lista-recentes");
+      const recentes = historico.slice(0, 5);
+      if (recentes.length === 0) {
+        listaRecentes.innerHTML = emptyState({
+          icone: "clipboard", titulo: "Nenhuma verificação ainda",
+          descricao: "Faça sua primeira consulta de compatibilidade.",
+          acaoHtml: `<a class="btn btn-primary" href="verificar.html">Verificar peça</a>`,
+        });
+      } else {
+        listaRecentes.innerHTML = recentes.map((h) => `
+          <div class="simple-row">
+            <div class="min-w-0">
+              <p class="title truncate">${escapeHtml(h.pecaNome)}</p>
+              <p class="sub">${escapeHtml(h.veiculoLabel)} · ${new Date(h.data).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}</p>
+            </div>
+            ${compatBadge(h.resultado)}
+          </div>`).join("");
+      }
+
+      const atrasadas = manutencoes.filter((m) => m.status === "Atrasada");
+      document.getElementById("resumo-manutencao").textContent = atrasadas.length > 0
+        ? `${atrasadas.length} manutenção(ões) atrasada(s) precisam de atenção.`
+        : "Nenhuma manutenção atrasada. Continue no ritmo.";
+
+      const proximas = [...manutencoes].filter((m) => m.status !== "Realizada")
+        .sort((a, b) => a.dataPrevista.localeCompare(b.dataPrevista)).slice(0, 4);
+      const listaManut = document.getElementById("lista-manutencao");
+      if (proximas.length === 0) {
+        listaManut.innerHTML = emptyState({
+          icone: "wrench", titulo: "Sem manutenções programadas",
+          descricao: "Cadastre revisões e trocas para não perder o prazo.",
+          acaoHtml: `<a class="btn btn-primary" href="manutencao.html">Programar manutenção</a>`,
+        });
+      } else {
+        listaManut.innerHTML = proximas.map((m) => `
+          <div class="simple-row">
+            <div class="min-w-0">
+              <p class="title truncate">${escapeHtml(m.tipo)}</p>
+              <p class="sub">${escapeHtml(m.veiculoLabel)} · ${new Date(`${m.dataPrevista}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}${m.kmPrevisto ? ` · ${m.kmPrevisto.toLocaleString("pt-BR")} km` : ""}</p>
+            </div>
+            <span class="badge-status ${m.status === "Atrasada" ? "status-Atrasada" : "status-Agendada"}">
+              ${icon(m.status === "Atrasada" ? "alerttriangle" : "calendarclock")}${m.status}
+            </span>
+          </div>`).join("");
+      }
+    });
+  </script>
+</body>
+</html>

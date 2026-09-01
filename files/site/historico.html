@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Histórico — PartLogic</title>
+  <meta name="description" content="Consulte todas as verificações de compatibilidade de peças já realizadas." />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="page-loading" id="loading"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin" aria-hidden="true"><path d="M12 3v3m0 12v3m9-9h-3M6 12H3m15.4-6.4-2.1 2.1M8.7 15.7l-2.1 2.1m0-11.4 2.1 2.1m8.6 8.6 2.1 2.1"/></svg> Carregando sua conta...</div>
+  <div id="app-root"></div>
+
+  <template id="page-content">
+    <div id="conteudo-historico"></div>
+
+    <div class="modal-overlay" id="modal-limpar">
+      <div class="modal" style="max-width:26rem">
+        <h2 class="modal-title">Limpar todo o histórico?</h2>
+        <p class="modal-desc">Todas as verificações registradas serão removidas permanentemente.</p>
+        <div class="modal-footer">
+          <button class="btn btn-outline" id="btn-cancelar-limpar">Cancelar</button>
+          <button class="btn btn-primary" id="btn-confirmar-limpar">Limpar</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <script src="js/storage.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/catalogo.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async () => {
+      if (await protegerRota()) document.getElementById("loading").remove();
+    })();
+
+    let filtros = { veiculo: "TODOS", resultado: "TODOS", tipo: "TODOS", busca: "" };
+
+    function listaFiltrada() {
+      const busca = filtros.busca.trim().toLowerCase();
+      return App.historico.filter((h) =>
+        (filtros.veiculo === "TODOS" || h.veiculoId === filtros.veiculo) &&
+        (filtros.tipo === "TODOS" || h.veiculoTipo === filtros.tipo) &&
+        (filtros.resultado === "TODOS" || h.resultado === filtros.resultado) &&
+        (!busca || `${h.pecaNome} ${h.pecaCodigo} ${h.veiculoLabel} ${h.categoria}`.toLowerCase().includes(busca))
+      );
+    }
+
+    function raiz() {
+      const historico = App.historico;
+      const lista = listaFiltrada();
+      const container = document.getElementById("conteudo-historico");
+
+      container.innerHTML = `
+        <div class="container-md" style="max-width:72rem;margin-inline:auto">
+          <div class="page-head">
+            <div>
+              <h1>Histórico</h1>
+              <p>${lista.length} de ${historico.length} verificação(ões).</p>
+            </div>
+            ${historico.length > 0 ? `<button class="btn btn-ghost" id="btn-limpar">${icon("trash")} Limpar histórico</button>` : ""}
+          </div>
+
+          ${historico.length > 0 ? `
+          <div class="filters-row">
+            <div class="search-box input-wrap has-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="input-icon" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+              <input aria-label="Buscar consultas anteriores" id="busca-historico" maxlength="60" placeholder="Buscar peça, código ou veículo" value="${escapeHtml(filtros.busca)}" />
+            </div>
+            <div class="select" id="select-tipo-hist" style="max-width:11rem">
+              <button type="button" class="select-trigger"><span class="select-value"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+              <div class="select-menu"></div>
+            </div>
+            <div class="select" id="select-veiculo-hist" style="max-width:14rem">
+              <button type="button" class="select-trigger"><span class="select-value"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+              <div class="select-menu"></div>
+            </div>
+            <div class="select" id="select-resultado-hist" style="max-width:12rem">
+              <button type="button" class="select-trigger"><span class="select-value"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+              <div class="select-menu"></div>
+            </div>
+          </div>` : ""}
+
+          <div id="tabela-historico"></div>
+        </div>
+      `;
+
+      if (historico.length > 0) {
+        document.getElementById("btn-limpar").addEventListener("click", () => openModal("modal-limpar"));
+        document.getElementById("busca-historico").addEventListener("input", (e) => { filtros.busca = e.target.value; renderTabela(); atualizarContagem(); });
+
+        const selTipo = document.getElementById("select-tipo-hist");
+        selTipo.querySelector(".select-menu").innerHTML = `<div class="select-option" data-value="TODOS">Todos os tipos</div>` +
+          tiposVeiculo.map((t) => `<div class="select-option" data-value="${t}">${t}</div>`).join("");
+        selTipo.querySelectorAll(".select-option").forEach((opt) => opt.addEventListener("click", () => {
+          filtros.tipo = opt.dataset.value; setSelectValue(selTipo, opt.dataset.value, opt.textContent); renderTabela(); atualizarContagem();
+        }));
+        setSelectValue(selTipo, filtros.tipo, filtros.tipo === "TODOS" ? "Todos os tipos" : filtros.tipo);
+
+        const selVeic = document.getElementById("select-veiculo-hist");
+        selVeic.querySelector(".select-menu").innerHTML = `<div class="select-option" data-value="TODOS">Todos os veículos</div>` +
+          App.veiculos.map((v) => `<div class="select-option" data-value="${v.id}">${escapeHtml(v.marca)} ${escapeHtml(v.modelo)} ${v.ano}</div>`).join("");
+        selVeic.querySelectorAll(".select-option").forEach((opt) => opt.addEventListener("click", () => {
+          filtros.veiculo = opt.dataset.value; setSelectValue(selVeic, opt.dataset.value, opt.textContent); renderTabela(); atualizarContagem();
+        }));
+        setSelectValue(selVeic, filtros.veiculo, filtros.veiculo === "TODOS" ? "Todos os veículos" : (App.veiculos.find((v) => v.id === filtros.veiculo)?.marca ?? ""));
+
+        const selResultado = document.getElementById("select-resultado-hist");
+        const opcoesResultado = [["TODOS", "Todos os resultados"], ["COMPATIVEL", "Compatível"], ["INCOMPATIVEL", "Não compatível"], ["VERIFICAR", "Verificar"]];
+        selResultado.querySelector(".select-menu").innerHTML = opcoesResultado.map(([v, l]) => `<div class="select-option" data-value="${v}">${l}</div>`).join("");
+        selResultado.querySelectorAll(".select-option").forEach((opt) => opt.addEventListener("click", () => {
+          filtros.resultado = opt.dataset.value; setSelectValue(selResultado, opt.dataset.value, opt.textContent); renderTabela(); atualizarContagem();
+        }));
+        setSelectValue(selResultado, filtros.resultado, opcoesResultado.find(([v]) => v === filtros.resultado)[1]);
+
+        initCustomSelects();
+      }
+
+      renderTabela();
+    }
+
+    function atualizarContagem() {
+      const p = document.querySelector(".page-head p");
+      if (p) p.textContent = `${listaFiltrada().length} de ${App.historico.length} verificação(ões).`;
+    }
+
+    function renderTabela() {
+      const historico = App.historico;
+      const lista = listaFiltrada();
+      const el = document.getElementById("tabela-historico");
+
+      if (lista.length === 0) {
+        el.innerHTML = emptyState({
+          icone: "clipboard",
+          titulo: historico.length === 0 ? "Nenhuma verificação registrada" : "Nada nesse filtro",
+          descricao: historico.length === 0 ? "Assim que você verificar uma peça, o registro aparece aqui." : "Ajuste os filtros para ver outras verificações.",
+          acaoHtml: historico.length === 0 ? `<a class="btn btn-primary" href="verificar.html">Verificar peça</a>` : "",
+        });
+        return;
+      }
+
+      el.innerHTML = `
+        <div class="history-table">
+          <div class="history-head"><span>Data</span><span></span><span></span><span></span></div>
+          <ul>
+            ${lista.map((h) => `
+              <li class="history-row">
+                <span class="hc-date">${new Date(h.data).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                <span class="hc-part"><b>${escapeHtml(h.pecaNome)}</b><span>${escapeHtml(h.pecaCodigo)} · ${escapeHtml(h.categoria)}</span></span>
+                <a class="hc-vehicle" href="veiculo.html?id=${encodeURIComponent(h.veiculoId)}">${escapeHtml(h.veiculoLabel)}</a>
+                <span class="hc-result">${compatBadge(h.resultado)}</span>
+              </li>`).join("")}
+          </ul>
+        </div>`;
+    }
+
+    document.addEventListener("shell-ready", () => {
+      raiz();
+      document.getElementById("btn-cancelar-limpar").addEventListener("click", () => closeModal("modal-limpar"));
+      document.getElementById("btn-confirmar-limpar").addEventListener("click", async () => {
+        try {
+          await App.limparHistorico();
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : "Não foi possível limpar o histórico.");
+        }
+        closeModal("modal-limpar");
+        raiz();
+      });
+    });
+  </script>
+</body>
+</html>
