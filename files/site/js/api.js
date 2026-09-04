@@ -6,7 +6,7 @@
 // o backend local na porta 5000, sem precisar mexer em nada durante o desenvolvimento.
 const API_BASE_URL = (["localhost", "127.0.0.1"].includes(window.location.hostname))
   ? "http://localhost:5000/api"
-  : "https://SEU-BACKEND-AQUI.onrender.com/api";
+  : "https://partlogic.onrender.com/api";
 
 class ApiError extends Error {
   constructor(message, status) {
