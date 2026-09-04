@@ -29,7 +29,8 @@ def register():
         user = execute_query(sql, params=(name, email, phone, hashed_password), fetch_one=True)
         return jsonify({"message": "Usuário cadastrado com sucesso!", "user": user}), 201
 
-    except Exception:
+    except Exception as e:
+        print(f"[REGISTER ERROR] {e}")
         return jsonify({"error": "E-mail já cadastrado ou erro no servidor."}), 400
 
 
