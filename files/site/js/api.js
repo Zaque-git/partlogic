@@ -1,6 +1,12 @@
 // Camada de integração com o backend Flask (equivalente a src/services/api.ts)
-// Ajuste API_BASE_URL se o backend estiver rodando em outro host/porta.
-const API_BASE_URL = "http://localhost:5000/api";
+// IMPORTANTE: depois de publicar o backend (ex.: no Render), troque a linha abaixo
+// pela URL pública do backend, por exemplo:
+//   const API_BASE_URL = "https://partlogic-backend.onrender.com/api";
+// Em localhost (http://127.0.0.1 ou http://localhost) ele usa automaticamente
+// o backend local na porta 5000, sem precisar mexer em nada durante o desenvolvimento.
+const API_BASE_URL = (["localhost", "127.0.0.1"].includes(window.location.hostname))
+  ? "http://localhost:5000/api"
+  : "https://SEU-BACKEND-AQUI.onrender.com/api";
 
 class ApiError extends Error {
   constructor(message, status) {
